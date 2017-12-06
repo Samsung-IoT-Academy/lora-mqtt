@@ -6,10 +6,10 @@
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -39,6 +39,8 @@ typedef enum {
 	UMDK_IDCARD_CMD_COLLECT,
 	UMDK_IDCARD_CMD_AUTH,
     UMDK_IDCARD_CMD_ALARM,
+    UMDK_IDCARD_CMD_LOCATION,
+    UMDK_IDCARD_CMD_SWITCH_GPS,
 } umdk_idcard_cmd_t;
 
 typedef enum {
@@ -70,7 +72,7 @@ void umdk_idcard_command(char *param, char *out, int bufsize) {
             uint8_t cell = strtol(param, &param, 10);
             uint16_t cmdid = strtol(param, &param, 10);
             snprintf(out, bufsize, "%02x%02x%04x", UMDK_IDCARD_CMD_COLLECT, cell, cmdid);
-        } 
+        }
     } else if (strstr(param, "get ") == param) {
         param += strlen("get ");    // Skip command
         if (strstr(param, "fingerprint ") == param) {
@@ -82,6 +84,18 @@ void umdk_idcard_command(char *param, char *out, int bufsize) {
         param += strlen("alarm ");
         uint16_t cmdid = strtol(param, &param, 10);
         snprintf(out, bufsize, "%02x%04x", UMDK_IDCARD_CMD_ALARM, cmdid);
+    } else if (strstr(param, "gps ") == param) {
+        param += strlen("gps ");
+        uint8_t gps_state = 1;
+        if (strstr(param, "on ") == param) {
+            gps_state = 1;
+            param += strlen("on ");
+        } else {
+            gps_state = 0;
+            param += strlen("off ");
+        }
+        uint16_t cmdid = strtol(param, &param, 10);
+        snprintf(out, bufsize, "%02x%02x%04x", UMDK_IDCARD_CMD_SWITCH_GPS, gps_state, cmdid);
     }
 }
 
@@ -108,14 +122,14 @@ bool umdk_idcard_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
             } else if (moddata[UMDK_IDCARD_BIOMETRY] == 2) {
                 add_value_pair(mqtt_msg, "biometry", "skipped");
             }
-            
+
             add_value_pair(mqtt_msg, "fingerprints", "1");
-            
+
             /* GPS data parser */
             uint8_t *bytes = &moddata[UMDK_IDCARD_GPS];
             gps_data_t gps;
             parse_gps_data(&gps, bytes, false);
-            
+
             if (!gps.ready) {
                 snprintf(buf, sizeof(buf), "absent");
             } else if (!gps.valid) {
@@ -125,9 +139,9 @@ bool umdk_idcard_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
                         fabs(gps.latitude), (gps.latitude)>0?"S":"N",
                         fabs(gps.longitude), (gps.longitude)>0?"W":"E");
             }
-            
+
             add_value_pair(mqtt_msg, "gps", buf);
-            
+
             if (moddata[UMDK_IDCARD_ALARM]) {
                 add_value_pair(mqtt_msg, "alarm", "1");
             } else {
@@ -135,7 +149,7 @@ bool umdk_idcard_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
             }
             break;
     }
-    
+
     message_id = moddata[UMDK_IDCARD_MESSAGE_ID] | moddata[UMDK_IDCARD_MESSAGE_ID + 1] << 8;
     uint16_to_le(&message_id);
     sprintf(buf, "%" PRIu16, message_id);
