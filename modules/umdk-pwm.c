@@ -51,8 +51,8 @@ void umdk_pwm_command(char *param, char *out, int bufsize) {
 				param += strlen("dev ");				// Skip command
 				uint8_t dev = strtol(param, &param, 10);
 				dev--;
-				param += strlen(" ");    						// Skip space
-
+				param += strlen(" ");    						// Skip space				
+				
 				uint8_t mask = 0;
 				if(strstr(param, "on ") == param) {
 					param += strlen("on ");				// Skip command

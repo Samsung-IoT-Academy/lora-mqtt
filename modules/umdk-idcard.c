@@ -69,24 +69,27 @@ void umdk_idcard_command(char *param, char *out, int bufsize) {
         param += strlen("fingerprint ");    // Skip command
         if (strstr(param, "set ") == param) {
             param += strlen("set ");
-            uint8_t cell = strtol(param, &param, 10);
             uint16_t cmdid = strtol(param, &param, 10);
-            snprintf(out, bufsize, "%02x%02x%04x", UMDK_IDCARD_CMD_COLLECT, cell, cmdid);
-        }
+            uint16_to_le(&cmdid);
+            snprintf(out, bufsize, "%02x%04x", UMDK_IDCARD_CMD_COLLECT, cmdid);
+        } 
     } else if (strstr(param, "get ") == param) {
         param += strlen("get ");    // Skip command
         if (strstr(param, "fingerprint ") == param) {
             param += strlen("fingerprint ");
             uint16_t cmdid = strtol(param, &param, 10);
+            uint16_to_le(&cmdid);
             snprintf(out, bufsize, "%02x%04x", UMDK_IDCARD_CMD_AUTH, cmdid);
         } else if (strstr(param, "location ") == param) {
             param += strlen("location ");
             uint16_t cmdid = strtol(param, &param, 10);
+            uint16_to_le(&cmdid);
             snprintf(out, bufsize, "%02x%04x", UMDK_IDCARD_CMD_LOCATION, cmdid);
         }
     } else if (strstr(param, "alarm ") == param) {
         param += strlen("alarm ");
         uint16_t cmdid = strtol(param, &param, 10);
+        uint16_to_le(&cmdid);
         snprintf(out, bufsize, "%02x%04x", UMDK_IDCARD_CMD_ALARM, cmdid);
     } else if (strstr(param, "gps ") == param) {
         param += strlen("gps ");
@@ -99,6 +102,7 @@ void umdk_idcard_command(char *param, char *out, int bufsize) {
             param += strlen("off ");
         }
         uint16_t cmdid = strtol(param, &param, 10);
+        uint16_to_le(&cmdid);
         snprintf(out, bufsize, "%02x%02x%04x", UMDK_IDCARD_CMD_SWITCH_GPS, gps_state, cmdid);
     }
 }
@@ -139,9 +143,14 @@ bool umdk_idcard_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
             } else if (!gps.valid) {
                 snprintf(buf, sizeof(buf), "invalid");
             } else {
-                snprintf(buf, sizeof(buf), "%f%s, %f%s",
-                        fabs(gps.latitude), (gps.latitude)>0?"S":"N",
-                        fabs(gps.longitude), (gps.longitude)>0?"W":"E");
+                int lat_d, lon_d;
+                double lat, lon;
+                lat_d = 100*modf(gps.latitude, &lat);
+                lon_d = 100*modf(gps.longitude, &lon);
+                
+                snprintf(buf, sizeof(buf), "%04d.%02d%s, %05d.%02d%s",
+                        abs((int)lat), abs(lat_d), (gps.latitude)>0?"N":"S",
+                        abs((int)lon), abs(lon_d), (gps.longitude)>0?"E":"W");
             }
 
             add_value_pair(mqtt_msg, "gps", buf);

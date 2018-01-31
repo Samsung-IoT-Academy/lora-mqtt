@@ -851,6 +851,8 @@ static void *publisher(void *arg)
         if (msgrcv(msgqid, &msg_rx, sizeof(msg_rx.mtext), 0, 0) < 0) {
             puts("[error] Failed to receive internal message");
             continue;
+        } else {
+            puts("[info] Internal message received");
         }
 		serve_reply(msg_rx.mtext);
 	}
@@ -932,6 +934,8 @@ static void *uart_reader(void *arg)
 		int r = 0, i = 0;
 
 		pthread_mutex_lock(&mutex_uart);
+        
+        //puts("[info] Requesting data");
 
 		dprintf(uart, "%c\r", CMD_FLUSH);
 
@@ -944,34 +948,40 @@ static void *uart_reader(void *arg)
 		buf[i] = '\0';
 
 		if (strlen(buf) > 0) {
-
-            printf("Some data received: %d bytes\n", (int)strlen(buf));
-
             char *running = strdup(buf), *token;
             const char *delims = "\n";
-
-            while (strlen(token = strsep(&running, delims))) {
+            
+            while ((token = strsep(&running, delims)) != NULL) {
+                if (strlen(token) == 0) {
+                    continue;
+                }
+                
                 if((strlen(token) + 1 ) > sizeof(msg_rx.mtext)) {
                     puts("[error] Oversized message, unable to send");
                     continue;
                 }
-
-                puts("Creating internal message");
-
+                
+                printf("[info] Received: 0x");
+                int t = 0;
+                for (t = 0; t < strlen(token); t++) {
+                    printf("%02x", token[t]);
+                }
+                printf("\n");
+                
                 msg_rx.mtype = 1;
-                memcpy(msg_rx.mtext, token, strlen(token));
-                msg_rx.mtext[strlen(token)] = 0;
-
-                puts("Sending internal message");
-
+                memcpy(msg_rx.mtext, token, strlen(token) + 1);
+                
+                puts("[info] Sending internal message");
+                
                 if (msgsnd(msgqid, &msg_rx, sizeof(msg_rx.mtext), 0) < 0) {
                     perror( strerror(errno) );
-                    printf("[error] Failed to send internal message");
+                    puts("[error] Failed to send internal message");
                     continue;
+                } else {
+                    puts("[info] Internal message sent");
                 }
             }
 		}
-
 		usleep(1e3 * UART_POLLING_INTERVAL);
 
 		/* Request devices list on demand */
@@ -1333,7 +1343,7 @@ int main(int argc, char *argv[])
         {
             exit(EXIT_FAILURE);
         }
-
+        
         sleep(30);
     }
     /* Create message queue */
@@ -1485,17 +1495,18 @@ int main(int argc, char *argv[])
 	mosquitto_subscribe_callback_set(mosq, my_subscribe_callback);
 
 	if (mosquitto_connect(mosq, host, port, keepalive) == MOSQ_ERR_ERRNO) {
-		snprintf(logbuf, sizeof(logbuf), "Unable to connect");
-		int errno_saved = errno;
-		char *errmsg_extracting = strerror_r(errno_saved, errbuf, sizeof(errbuf));
-		if (errmsg_extracting != errbuf) {
-			logprint(strcat(logbuf, ".\n"));
-		} else {
-			strncat(logbuf, ": ", sizeof(logbuf) - (strlen(logbuf) + 1));
-			strncat(logbuf, errbuf, sizeof(logbuf) - (strlen(logbuf) + 1));
-			strncat(logbuf, "\n", sizeof(logbuf) - (strlen(logbuf) + 1));
-			logprint(logbuf);
-		}
+        snprintf(logbuf, sizeof(logbuf), "Unable to connect");
+        int errno_saved = errno;
+        char *errmsg_extracting = strerror_r(errno_saved, errbuf, sizeof(errbuf));
+        if (errmsg_extracting != errbuf) {
+            logprint(strcat(logbuf, ".\n"));
+        } else {
+            strncat(logbuf, ": ", sizeof(logbuf) - (strlen(logbuf) + 1));
+            strncat(logbuf, errbuf, sizeof(logbuf) - (strlen(logbuf) + 1));
+            strncat(logbuf, "\n", sizeof(logbuf) - (strlen(logbuf) + 1));
+            logprint(logbuf);
+        }
+
 		return 1;
 	}
 
