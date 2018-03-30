@@ -7,15 +7,9 @@
 # Modify your Options here
 # After that, please "make clean" and "make" to re-compile your code
 
-<<<<<<< HEAD
 CFLAGS += -v -O0 -O -Wall -Werror -I./include -I./modules/include
 # CXXFLAGS =
 LDFLAGS += -lcares -lcrypto -lssl -lmosquitto -lpthread -pthread
-=======
-CFLAGS += -v -O0 -Wall -Werror -I./include -I./modules/include
-# CXXFLAGS = 
-LDFLAGS += -lcares -lcrypto -lssl -lmosquitto -lpthread -pthread -lm
->>>>>>> samsung-iot-academy-for-merging
 
 # do not use the default `rv` option
 ARFLAGS=cr
