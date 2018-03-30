@@ -37,6 +37,8 @@
 #include "unwds-modules.h"
 #include "utils.h"
 
+#define IEC61107_DEBUG 0
+
 #define IEC61107_BRACKET_OPEN 0x28 /* '(' */
 #define IEC61107_BRACKET_CLOSE 0x29 /* ')' */
 #define	IEC61107_WRITE 0x57	/* 'W' - Write */
@@ -51,6 +53,8 @@ typedef enum {
 	UMDK_IEC61107_CMD_DATABASE_FIND 		= 0xFB,		/* Find address in database */
 
     IEC61107_CMD_PROPRIETARY_COMMAND 	= 0xF0,		/* Less this value - single command of CE102M */
+	
+	IEC61107_ERROR_PROTOCOL_DEVICE      = 0xEF,		/* Returning error from device */
 
     IEC61107_CMD_SPECIFIC				= 0x00,		/* Manufacturer Special cmd */
 	
@@ -62,23 +66,18 @@ typedef enum {
 	IEC61107_CMD_STATUS					= 0x06,		/* Read device status */
 		
     IEC61107_CMD_GET_VALUE_TOTAL_ALL	= 0x07,		/* Read the total values of energy after reset */
-	IEC61107_CMD_GET_VALUE_TOTAL_MONTH	= 0x08,		/* Read the total values of monthly energy */
-    IEC61107_CMD_GET_VALUE_TOTAL_DAY	= 0x09,		/* Read the total values of daily energy */
-    IEC61107_CMD_GET_VALUE_END_MONTH	= 0x0A,		/* Read the values of monthly energy */
-    IEC61107_CMD_GET_VALUE_END_DAY		= 0x0B,		/* Read the values of daily energy */ 
-    IEC61107_CMD_GET_VALUE_DATE_MONTH	= 0x0C,		/* Read the date array of monthly energy savings */
-    IEC61107_CMD_GET_VALUE_DATE_DAY		= 0x0D,		/* Read the date array of daily energy savings */
-	IEC61107_CMD_ERASAE_VALUES			= 0x0E,		/* Erase all energy  values */
+	IEC61107_CMD_GET_VALUE_MONTH		= 0x08,		/* Read the values of monthly energy */
+    IEC61107_CMD_GET_VALUE_DAY			= 0x09,		/* Read the values of daily energy */
+    IEC61107_CMD_GET_VALUE_TOTAL_MONTH	= 0x0A,		/* Read the total values of monthly energy */
+    IEC61107_CMD_GET_VALUE_TOTAL_DAY	= 0x0B,		/* Read the total values of daily energy */
 	
-	IEC61107_CMD_GET_VOLT				= 0x0F,		/* Read the voltage value */
-	IEC61107_CMD_GET_CURR				= 0x10,		/* Read the current value */
-	IEC61107_CMD_GET_POWER				= 0x11,		/* Read the power value */
+	IEC61107_CMD_GET_VOLT				= 0x0C,		/* Read the voltage value */
+	IEC61107_CMD_GET_CURR				= 0x0D,		/* Read the current value */
+	IEC61107_CMD_GET_POWER				= 0x0E,		/* Read the power value */
 	
-	IEC61107_CMD_SCHEDULE				= 0x12,		/* Read/write schedule ot tariffs */
-	IEC61107_CMD_HOLIDAYS				= 0x13,		/* Read/write list of holidays */
-	
-	IEC61107_CMD_TARIFF_DEFAULT			= 0x14,		/* Set/get default tariff */	
-	// IEC61107_CMD_GET_SAVING_END_MONTH	= 0x14,
+	IEC61107_CMD_SCHEDULE				= 0x0F,		/* Read/write schedule ot tariffs */
+	IEC61107_CMD_HOLIDAYS				= 0x10,		/* Read/write list of holidays */	
+	IEC61107_CMD_TARIFF_DEFAULT			= 0x11,		/* Set/get default tariff */	
 } umdk_iec61107_cmd_t;
 
 typedef enum {
@@ -89,10 +88,11 @@ typedef enum {
 } iec61107_database_param_t;
 
 typedef enum {
-	UMDK_IEC61107_ERROR_REPLY 		= 0,
-    UMDK_IEC61107_OK_REPLY 			= 1,
-    UMDK_IEC61107_NO_RESPONSE_REPLY 	= 2,
-	UMDK_IEC61107_INVALID_CMD_REPLY 	= 0xFF,
+    UMDK_IEC61107_ERROR_REPLY        = 0,
+    UMDK_IEC61107_OK_REPLY           = 1,
+    UMDK_IEC61107_NO_RESPONSE_REPLY  = 2,
+	UMDK_IEC61107_WAIT_REPLY		 = 3,
+    UMDK_IEC61107_INVALID_CMD_REPLY  = 0xFF,
 } iec61107_reply_t;
 
 static char str_dow[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
@@ -113,7 +113,8 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 	uint8_t tariff_hour = 0;
 	uint8_t min = 0;
 	
-	uint16_t date = 0;
+	uint8_t date_tmp1 = 0, date_tmp2 = 0;
+	uint8_t day = 0, month = 0, sch = 0;
 	
 	if (strstr(param, "reset") == param) {
 		cmd = UMDK_IEC61107_CMD_DATABASE_RESET;
@@ -199,10 +200,21 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 	else if (strstr(param, "set init") == param) {
 		cmd = IEC61107_CMD_OPTIONS;
 		mode = IEC61107_WRITE;
+		zz_param = 0;
+	}
+	else if (strstr(param, "set fin") == param) {
+		cmd = IEC61107_CMD_OPTIONS;
+		mode = IEC61107_WRITE;
+		zz_param =  1;
 	}
 	else if (strstr(param, "get init") == param) {
 		param += strlen("get init");    // Skip 
 		cmd = IEC61107_CMD_OPTIONS;
+		mode = IEC61107_READ;
+	}
+	else if (strstr(param, "get status") == param) {
+		param += strlen("get status");    // Skip 
+		cmd = IEC61107_CMD_STATUS;
 		mode = IEC61107_READ;
 	}
 	else if (strstr(param, "get serial") == param) {
@@ -250,17 +262,35 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 		cmd = IEC61107_CMD_DATE;	
 		mode = IEC61107_WRITE;		
 	}
+	else if (strstr(param, "get default_tariff") == param) { 
+		param += strlen("get default_tariff");    // Skip command
+		cmd = IEC61107_CMD_TARIFF_DEFAULT;	
+		mode = IEC61107_READ;		
+	}
+	else if (strstr(param, "set default_tariff") == param) { 
+		param += strlen("set default_tariff");    // Skip command
+		cmd = IEC61107_CMD_TARIFF_DEFAULT;	
+		mode = IEC61107_WRITE;		
+	}	
+	else if (strstr(param, "get special_cmd") == param) { 
+		param += strlen("get special_cmd");    // Skip command
+		cmd = IEC61107_CMD_SPECIFIC;
+		mode = IEC61107_MODE_SP_READ;
+	}
 	else if (strstr(param, "get value ") == param) { 
 		param += strlen("get value ");    // Skip command
 		mode = IEC61107_READ;
-		if(strstr(param, "total_sp") == param) {
-			param += strlen("total_sp");				// Skip command
-			cmd = IEC61107_CMD_SPECIFIC;
-			mode = IEC61107_MODE_SP_READ;
-		}
-		else if(strstr(param, "total_all") == param) { 
+		if(strstr(param, "total_all") == param) { 
 			param += strlen("total_all");    // Skip command
 			cmd = IEC61107_CMD_GET_VALUE_TOTAL_ALL;
+		}
+		else if(strstr(param, "month") == param) { 
+			param += strlen("month");    // Skip command
+			cmd = IEC61107_CMD_GET_VALUE_MONTH;
+		}
+		else if(strstr(param, "day") == param) { 
+			param += strlen("day");    // Skip command
+			cmd = IEC61107_CMD_GET_VALUE_DAY;
 		}
 		else if(strstr(param, "total_month") == param) { 
 			param += strlen("total_month");    // Skip command
@@ -269,14 +299,6 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 		else if(strstr(param, "total_day") == param) { 
 			param += strlen("total_day");    // Skip command
 			cmd = IEC61107_CMD_GET_VALUE_TOTAL_DAY;
-		}
-		else if(strstr(param, "end_month") == param) { 
-			param += strlen("end_month");    // Skip command
-			cmd = IEC61107_CMD_GET_VALUE_END_MONTH;
-		}
-		else if(strstr(param, "end_day") == param) { 
-			param += strlen("end_day");    // Skip command
-			cmd = IEC61107_CMD_GET_VALUE_END_DAY;
 		}	
 		else {
 			snprintf(out, bufsize, "%02x", UMDK_IEC61107_INVALID_CMD_REPLY);
@@ -312,7 +334,7 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 			zz_param = 1;
 		}
 		else if(strstr(param, "part_2") == param) { 
-			param += strlen("part_");    // Skip command
+			param += strlen("part_2");    // Skip command
 			zz_param = 2;
 		}
 		else {
@@ -356,7 +378,13 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 	
 	if(cmd == IEC61107_CMD_OPTIONS) {
 		length_param = 5;
-		parametr_ptr = "18290";
+		if(zz_param == 0) {
+			parametr_ptr = "18290";
+		}
+		else {
+			parametr_ptr = "18288";
+		}
+		zz_param = 0;
 	}
 	
 	num_char = snprintf(out, bufsize, "%02x%02x%02x%02x", cmd, mode, zz_param, device);
@@ -375,14 +403,18 @@ void umdk_iec61107_command(char *param, char *out, int bufsize) {
 			i += 8;
 		}
 		else if((cmd == IEC61107_CMD_HOLIDAYS) && (mode == IEC61107_WRITE)) {
-			date = strtol(parametr_ptr, &parametr_ptr, 10) << 6;	// Day
+			
+			day = strtol(parametr_ptr, &parametr_ptr, 10);	// Day
 			parametr_ptr += strlen(" ");    						// Skip space
-			date |= strtol(parametr_ptr, &parametr_ptr, 10) << 12;	// Month
+			month = strtol(parametr_ptr, &parametr_ptr, 10);	// Month
 			parametr_ptr += strlen(" ");    						// Skip space
-			date |= strtol(parametr_ptr, &parametr_ptr, 10) << 0;	// Schedule			
+			sch = strtol(parametr_ptr, &parametr_ptr, 10);	// Schedule			
 			parametr_ptr += strlen(" ");    						// Skip space
-			printf("[IEC61107]: %04X ", date);
-			num_char += snprintf(out + num_char, bufsize - num_char, "%04x", date);			
+			
+			date_tmp1 = (month << 4) + (day >> 2);
+			date_tmp2 = (sch) + ((day & 0x03) << 6);
+
+			num_char += snprintf(out + num_char, bufsize - num_char, "%02x%02x", date_tmp1, date_tmp2);			
 			i += 8;
 		}
 		else {
@@ -404,13 +436,16 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 	uint16_t num_char = 0;
 	uint16_t i = 0;
 	uint8_t symbol = 0;
-		
-	// uint8_t ii;
-    // printf("[iec61107] RX data:  ");
-    // for(ii = 0; ii < moddatalen; ii++) {
-        // printf(" %02X ", moddata[ii]);
-    // }
-   // puts("\n");
+	uint8_t * data_ptr = NULL;
+	
+#if IEC61107_DEBUG	
+	uint8_t ii;
+    printf("[iec61107] RX data:  ");
+    for(ii = 0; ii < moddatalen; ii++) {
+        printf(" %02X ", moddata[ii]);
+    }
+   puts("\n");
+#endif
 	
    if (moddatalen == 1) {
         if (moddata[0] == UMDK_IEC61107_OK_REPLY) {
@@ -427,11 +462,11 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 	umdk_iec61107_cmd_t cmd = moddata[0];	
 	uint8_t device = moddata[1];
 	
-	if(cmd < IEC61107_CMD_PROPRIETARY_COMMAND) {	
-		snprintf(buf_addr, sizeof(buf_addr), "%02d", device);
+	if(cmd < IEC61107_CMD_PROPRIETARY_COMMAND) {
+
+		snprintf(buf_addr, sizeof(buf_addr), "%d", device);
 		add_value_pair(mqtt_msg, "device", buf_addr);
-		
-								
+										
 		if (moddatalen == 2) {
 			if (moddata[0] == UMDK_IEC61107_OK_REPLY) {
 				add_value_pair(mqtt_msg, "msg", "ok");
@@ -439,7 +474,10 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 				add_value_pair(mqtt_msg, "msg", "error");
 			} else if(moddata[0] == UMDK_IEC61107_NO_RESPONSE_REPLY){
 				add_value_pair(mqtt_msg, "msg", "no response");					
+			} else if(moddata[0] == UMDK_IEC61107_WAIT_REPLY){
+				add_value_pair(mqtt_msg, "msg", "please wait");					
 			}
+			
 			return true;
 		}	
 	}
@@ -454,12 +492,11 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 			add_value_pair(mqtt_msg, "cmd", "found");
 		}
 		
-		snprintf(buf_addr, sizeof(buf_addr), "%02d", device);
-		add_value_pair(mqtt_msg, "device", buf_addr);	
+		snprintf(buf_addr, sizeof(buf_addr), "%d", device);
+		add_value_pair(mqtt_msg, "device", buf_addr);
 		
 		uint8_t *address_ptr = moddata + 2;	
-		uint16_t num_char = 0;
-
+		
 		for(i = 0; i < (moddatalen - 2); i++) {
 			symbol = *address_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
@@ -470,108 +507,127 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 	}
  
 	if(cmd == IEC61107_CMD_TIME) {
-		char time_buf[10] = { };
-		
-		uint8_t hour = ( moddata[2] - 0x30) * 10 + ( moddata[3] - 0x30);
-		uint8_t min =  ( moddata[4] - 0x30) * 10 + ( moddata[5] - 0x30);
-		uint8_t sec =  ( moddata[6] - 0x30) * 10 + ( moddata[7] - 0x30);
-				
-		
-		snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d", hour, min, sec);	
-		add_value_pair(mqtt_msg, "time", time_buf);
-		
+		data_ptr = moddata + 2;	
+		for(i = 2; i < moddatalen; i++) {
+			symbol = *data_ptr;
+			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
+			data_ptr++;
+		}
+	
+		add_value_pair(mqtt_msg, "time", buf);				
 	}
 	else if(cmd == IEC61107_CMD_DATE) {
-		char date_buf[15] = { };
-		
 		uint8_t dow = ( moddata[2] - 0x30) * 10 + ( moddata[3] - 0x30);
-		
-		uint8_t day = ( moddata[4] - 0x30) * 10 + ( moddata[5] - 0x30);
-		uint8_t month =  ( moddata[6] - 0x30) * 10 + ( moddata[7] - 0x30);
-		uint8_t year =  ( moddata[8] - 0x30) * 10 + ( moddata[9] - 0x30);
-
+		data_ptr = moddata + 5;	
 		add_value_pair(mqtt_msg, "day", str_dow[dow]);			
-		
-		snprintf(date_buf, sizeof(date_buf), "%02d/%02d/%02d", day, month, year);	
-		add_value_pair(mqtt_msg, "date", date_buf);
+			
+		for(i = 2; i < moddatalen; i++) {
+			symbol = *data_ptr;
+			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
+			data_ptr++;
+		}
+	
+		add_value_pair(mqtt_msg, "date", buf);
 	}				
 	else if(cmd == IEC61107_CMD_SERIAL) {
-		uint8_t *serial_ptr = moddata + 2;	
+		data_ptr = moddata + 2;	
 		for(i = 2; i < moddatalen; i++) {
-			symbol = *serial_ptr;
+			symbol = *data_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
-			serial_ptr++;
+			data_ptr++;
 		}
 	
 		add_value_pair(mqtt_msg, "serial", buf);
 	}
 	else if(cmd == IEC61107_CMD_ID_DEV) {
-		uint8_t *serial_ptr = moddata + 2;	
+		data_ptr = moddata + 2;	
 		for(i = 2; i < moddatalen; i++) {
-			symbol = *serial_ptr;
+			symbol = *data_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
-			serial_ptr++;
+			data_ptr++;
 		}
 	
 		add_value_pair(mqtt_msg, "id device", buf);
 	}			
 	else if(cmd == IEC61107_CMD_GET_VOLT) {
-		uint8_t *volt_ptr = moddata + 2;	
+		data_ptr = moddata + 2;	
 		for(i = 2; i < moddatalen; i++) {
-			symbol = *volt_ptr;
+			symbol = *data_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
-			volt_ptr++;
+			data_ptr++;
 		}
 	
 		add_value_pair(mqtt_msg, "voltage", buf);
 	}			
 	else if(cmd == IEC61107_CMD_GET_CURR) {
-		uint8_t *curr_ptr = moddata + 2;	
+		data_ptr = moddata + 2;	
 		for(i = 2; i < moddatalen; i++) {
-			symbol = *curr_ptr;
+			symbol = *data_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
-			curr_ptr++;
+			data_ptr++;
 		}
 	
 		add_value_pair(mqtt_msg, "current", buf);
 	}			
 	else if(cmd == IEC61107_CMD_GET_POWER) {
-		uint8_t *power_ptr = moddata + 2;	
+		data_ptr = moddata + 2;	
 		for(i = 2; i < moddatalen; i++) {
-			symbol = *power_ptr;
+			symbol = *data_ptr;
 			num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%c", symbol);
-			power_ptr++;
+			data_ptr++;
 		}
 	
 		add_value_pair(mqtt_msg, "power", buf);
 	}		
 	else if(cmd == IEC61107_CMD_SCHEDULE) {				
-		if((moddata[2] == 0) && (moddata[3] == 0)) {
-			add_value_pair(mqtt_msg, "schedule", "not set");
-		}
-		else {
-			char tariff_str[5] = { };
-			uint8_t num_schedule = (moddatalen  - 2) / 2;			
-			uint8_t hour = 0;
-			uint8_t min = 0;
-			uint8_t tariff = 0;
-			
-			for(i = 0; i < num_schedule; i++) {
-				tariff = moddata[2 + 2*i] >> 5;
-				if(tariff != 0) {
-					hour = moddata[2 + 2*i] & 0x1F;
-					min = moddata[3 + 2*i];
-					snprintf(tariff_str, sizeof(tariff_str), "T%02d", tariff);		
-					snprintf(buf, sizeof(buf), "%02d:%02d",  hour, min);
-					add_value_pair(mqtt_msg, tariff_str, buf);			
-				}
-			}
-		}		
+		char tariff_str[5] = { };
+		uint8_t num_schedule = (moddatalen  - 2) / 2;			
+		uint8_t hour = 0;
+		uint8_t min = 0;
+		uint8_t tariff = 0;
+		
+		for(i = 0; i < num_schedule; i++) {
+			tariff = moddata[2 + 2*i] >> 5;
+			hour = moddata[2 + 2*i] & 0x1F;
+			min = moddata[3 + 2*i];
+			snprintf(tariff_str, sizeof(tariff_str), "T%02d", tariff);		
+			snprintf(buf, sizeof(buf), "%02d:%02d",  hour, min);
+			add_value_pair(mqtt_msg, tariff_str, buf);			
+		}	
+		
+		for(i = num_schedule; i < 12; i++) {
+			add_value_pair(mqtt_msg, "T00", "00:00");			
+		}	
 	}			
 	else if(cmd == IEC61107_CMD_HOLIDAYS) {
+		uint8_t list = moddata[2];
+		
+		char list_str[5] = { };
+		char schedule_str[10] = { };
+		uint8_t num_holidays = (moddatalen  - 3) / 2;			
+		uint8_t day = 0;
+		uint8_t month = 0;
+		uint8_t schedule = 0;
+		
+		snprintf(list_str, sizeof(list_str), "%d/%d", list >> 4, list & 0x0F);		
+		add_value_pair(mqtt_msg, "holidays list", list_str);		
+		
+		for(i = 0; i < num_holidays; i++) {
+			month = moddata[3 + 2*i] >> 4;
+			day = ((moddata[3 + 2*i] & 0x07) << 2) + ((moddata[4 + 2*i] & 0xC0) >> 6);
+			schedule = moddata[4 + 2*i] & 0x3F;
+			snprintf(buf, sizeof(buf), "%02d.%02d", day, month);
+
+			snprintf(schedule_str, sizeof(schedule_str), "%d", schedule);		
+
+			add_value_pair(mqtt_msg, buf, schedule_str);			
+		}
+		for(i = num_holidays; i < 16; i++) {
+			add_value_pair(mqtt_msg, "00.00", "0");			
+		}
 		
 	}			
-	else if((cmd >= IEC61107_CMD_GET_VALUE_TOTAL_ALL) && (cmd <= IEC61107_CMD_GET_VALUE_END_DAY)) {
+	else if((cmd >= IEC61107_CMD_GET_VALUE_TOTAL_ALL) && (cmd <= IEC61107_CMD_GET_VALUE_TOTAL_DAY)) {
 		uint32_t value[5] = { 0 };
 		uint32_t * ptr_value;
 		for(i = 0; i < 5; i++) {
@@ -590,7 +646,179 @@ bool umdk_iec61107_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg)
 		int_to_float_str(strbuf, value[0], 2);
 		snprintf(buf, sizeof(buf), "%s", strbuf);
 		add_value_pair(mqtt_msg, "Total", buf);		
-	}				
+	}	
+	else if(cmd == IEC61107_CMD_TARIFF_DEFAULT) {
+		data_ptr = moddata + 2;	
+		snprintf(buf, sizeof(buf), "%c", *data_ptr + 1);
+		add_value_pair(mqtt_msg, "default tariff", buf);				
+	}
+	else if (cmd == IEC61107_CMD_STATUS){
+		char curr_tariff[5] = { };
+		data_ptr = moddata + 2;	
+		
+		uint8_t err_schedule = (*data_ptr & 0x01);
+		data_ptr++;
+		uint8_t tariff_sch = (*data_ptr & 0x0F);
+		data_ptr++;
+		uint8_t cs_metrolog = (*data_ptr & 0x02);
+		uint8_t cs_mem = (*data_ptr & 0x01);
+		data_ptr++;
+		uint8_t life_batt = (*data_ptr & 0x08);
+		uint8_t stat_cover = (*data_ptr & 0x02);
+		uint8_t cs_energy = (*data_ptr & 0x02);
+		data_ptr++;
+		uint8_t season = (*data_ptr & 0x04);
+		uint8_t stat_time = (*data_ptr & 0x01);
+		data_ptr++;
+		uint8_t stat_volt = (*data_ptr & 0x0C);
+		uint8_t correct_time = (*data_ptr & 0x02);
+		uint8_t load = (*data_ptr & 0x01);
+		data_ptr++;
+		uint8_t energy_direct = (*data_ptr & 0x08);
+		data_ptr++;
+		uint8_t stat_batt = (*data_ptr & 0x08);
+		uint8_t curr_tar = (*data_ptr & 0x07);
+	
+		snprintf(curr_tariff, sizeof(curr_tariff), "T%02d", curr_tar);
+		add_value_pair(mqtt_msg, "current tariff", curr_tariff);
+		
+		num_char = snprintf(buf, sizeof(buf), "[ ");		
+		for(i = 0; i < 4; i++) {
+			if(tariff_sch & (1 << i)) {
+				num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "%d, ", i + 1);
+			}									
+		}	
+		num_char += snprintf(buf + num_char, sizeof(buf) - num_char, "]");
+		add_value_pair(mqtt_msg, "schedule tariffs", buf);
+		
+		if(err_schedule == 0x01){
+			add_value_pair(mqtt_msg, "schedule status", "error");			
+		}
+		else if(err_schedule == 0x00) {
+			add_value_pair(mqtt_msg, "schedule status", "normal");
+		}		
+		
+		if(season == 0x01){
+			add_value_pair(mqtt_msg, "season", "summer");			
+		}
+		else if(season == 0x00) {
+			add_value_pair(mqtt_msg, "season", "winter");
+		}		
+		
+		if(stat_time == 0x01){
+			add_value_pair(mqtt_msg, "time status", "failure");			
+		}
+		else if(stat_time == 0x00) {
+			add_value_pair(mqtt_msg, "time status", "normal");
+		}					
+		if(correct_time == 0x01){
+			add_value_pair(mqtt_msg, "time correction", "not allowed");			
+		}
+		else if(correct_time == 0x00) {
+			add_value_pair(mqtt_msg, "time correction", "allowed");
+		}			
+		
+		if(stat_batt == 0x01){
+			add_value_pair(mqtt_msg, "battery status", "discharged");			
+		}
+		else if(stat_batt == 0x00) {
+			add_value_pair(mqtt_msg, "battery status", "charged");
+		}
+		if(life_batt == 0x01){
+			add_value_pair(mqtt_msg, "battery lifetime", "expired");			
+		}
+		else if(life_batt == 0x00) {
+			add_value_pair(mqtt_msg, "battery lifetime", "normal");
+		}		
+
+		if(stat_volt == 0x01){
+			add_value_pair(mqtt_msg, "voltage status", "overvoltage");			
+		}
+		else if(stat_volt == 0x00) {
+			add_value_pair(mqtt_msg, "voltage status", "normal");
+		}	
+		else if(stat_volt == 0x02) {
+			add_value_pair(mqtt_msg, "voltage status", "undervoltage");
+		}			
+		
+		if(load == 0x01){
+			add_value_pair(mqtt_msg, "load", "inductive");			
+		}
+		else if(load == 0x00) {
+			add_value_pair(mqtt_msg, "load", "capacitive");
+		}			
+		
+		if(energy_direct == 0x01){
+			add_value_pair(mqtt_msg, "direction", "reverse");			
+		}
+		else if(energy_direct == 0x00) {
+			add_value_pair(mqtt_msg, "direction", "direct");
+		}		
+			
+		if(cs_energy == 0x01){
+			add_value_pair(mqtt_msg, "energy values", "checksum error");			
+		}
+		else if(cs_energy == 0x00) {
+			add_value_pair(mqtt_msg, "energy values", "normal");
+		}				
+		
+		if(stat_cover == 0x01){
+			add_value_pair(mqtt_msg, "tamper", "failure");			
+		}
+		else if(stat_cover == 0x00) {
+			add_value_pair(mqtt_msg, "tamper", "normal");
+		}						
+		
+		if(cs_mem == 0x01){
+			add_value_pair(mqtt_msg, "program memory", "checksum error");			
+		}
+		else if(cs_mem == 0x00) {
+			add_value_pair(mqtt_msg, "program memory", "normal");
+		}		
+
+		if(cs_metrolog == 0x01){
+			add_value_pair(mqtt_msg, "metrology", "checksum error");			
+		}
+		else if(cs_metrolog == 0x00) {
+			add_value_pair(mqtt_msg, "metrology", "normal");
+		}		
+		
+	}
+	else if(cmd == IEC61107_ERROR_PROTOCOL_DEVICE) {
+		char err_buf[5];
+		uint8_t error = moddata[2];
+		
+		snprintf(err_buf, sizeof(err_buf), "%d", error);
+		add_value_pair(mqtt_msg, "err", err_buf);
+		
+		if(error == 10) {
+			add_value_pair(mqtt_msg, "msg", "invalid number of parameters");
+		}
+		else if(error == 11) {
+			add_value_pair(mqtt_msg, "msg", "not supported");
+		}
+		else if(error == 12) {
+			add_value_pair(mqtt_msg, "msg", "unknown parameter");
+		}
+		else if(error == 13) {
+			add_value_pair(mqtt_msg, "msg", "invalid format");
+		}
+		else if(error == 14) {
+			add_value_pair(mqtt_msg, "msg", "not initialized");
+		}
+		else if(error == 15) {
+			add_value_pair(mqtt_msg, "msg", "access denied");
+		}
+		else if(error == 16) {
+			add_value_pair(mqtt_msg, "msg", "no programming rights");
+		}
+		else if(error == 17) {
+			add_value_pair(mqtt_msg, "msg", "invalid parameter value");
+		}
+		else if(error == 18) {
+			add_value_pair(mqtt_msg, "msg", "nonexistent parameter value");
+		}
+	}
 				
 	return true;
 }

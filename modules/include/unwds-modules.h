@@ -64,6 +64,9 @@ bool umdk_pacs_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
 bool umdk_hd44780_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
 bool umdk_idcard_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
 bool umdk_irblaster_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
+bool umdk_hx711_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
+bool umdk_dali_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
+bool umdk_usound_reply(uint8_t *moddata, int moddatalen, mqtt_msg_t *mqtt_msg);
 
 void umdk_counter_command(char *param, char *out, int bufsize);
 void umdk_pulse_command(char *param, char *out, int bufsize);
@@ -90,6 +93,9 @@ void umdk_pacs_command(char *param, char *out, int bufsize);
 void umdk_hd44780_command(char *param, char *out, int bufsize);
 void umdk_idcard_command(char *param, char *out, int bufsize);
 void umdk_irblaster_command(char *param, char *out, int bufsize);
+void umdk_hx711_command(char *param, char *out, int bufsize);
+void umdk_dali_command(char *param, char *out, int bufsize);
+void umdk_usound_command(char *param, char *out, int bufsize);
 
 static const unwds_module_desc_t unwds_modules_list[] = {
     { .id = UNWDS_GPIO_MODULE_ID,      .name = "gpio",      .cmd = &umdk_gpio_command,       .reply = &umdk_gpio_reply      },
@@ -107,7 +113,7 @@ static const unwds_module_desc_t unwds_modules_list[] = {
     { .id = UNWDS_RSSIECHO_MODULE_ID,  .name = "echo",      .cmd = &umdk_rssiecho_command,   .reply = &umdk_rssiecho_reply  },
     { .id = UNWDS_PWM_MODULE_ID,       .name = "pwm",       .cmd = &umdk_pwm_command,        .reply = &umdk_pwm_reply       },
     { .id = UNWDS_OPT3001_MODULE_ID,   .name = "opt3001",   .cmd = &umdk_opt3001_command,    .reply = &umdk_opt3001_reply   },
-    { .id = UNWDS_DALI_MODULE_ID,      .name = "dali",      .cmd = NULL,                     .reply = NULL                  },
+    { .id = UNWDS_DALI_MODULE_ID,      .name = "dali",      .cmd = &umdk_dali_command,       .reply = &umdk_dali_reply      },
     { .id = UNWDS_BME280_MODULE_ID,    .name = "bme280",    .cmd = &umdk_bme280_command,     .reply = &umdk_bme280_reply    },
     { .id = UNWDS_M200_MODULE_ID,      .name = "m200",      .cmd = &umdk_m200_command,       .reply = &umdk_m200_reply      },
     { .id = UNWDS_CONFIG_MODULE_ID,    .name = "config",    .cmd = &umdk_config_command,     .reply = &umdk_config_reply    },
@@ -122,6 +128,8 @@ static const unwds_module_desc_t unwds_modules_list[] = {
     { .id = UNWDS_PACS_MODULE_ID,      .name = "pacs",      .cmd = &umdk_pacs_command,       .reply = &umdk_pacs_reply      },
     { .id = UNWDS_IDCARD_MODULE_ID,    .name = "idcard",    .cmd = &umdk_idcard_command,     .reply = &umdk_idcard_reply    },
     { .id = UNWDS_IRBLASTER_MODULE_ID, .name = "irblaster", .cmd = &umdk_irblaster_command,  .reply = &umdk_irblaster_reply },
+    { .id = UNWDS_HX711_MODULE_ID,     .name = "hx711",     .cmd = &umdk_hx711_command,      .reply = &umdk_hx711_reply     },
+    { .id = UNWDS_USOUND_MODULE_ID,    .name = "usound",    .cmd = &umdk_usound_command,     .reply = &umdk_usound_reply    },
 };
 
 bool (*umdk_reply_ptr)(uint8_t*, int, mqtt_msg_t*);
